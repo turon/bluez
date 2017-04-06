@@ -120,11 +120,9 @@ static void signal_callback(int fd, uint32_t events, void *user_data)
 	if (data->callback)
 		data->callback(si.ssi_signo, data->user_data);
 }
-
-int mainloop_run(void)
+ 
+int mainloop_run_init(void)
 {
-	unsigned int i;
-
 	if (signal_data) {
 		if (sigprocmask(SIG_BLOCK, &signal_data->mask, NULL) < 0)
 			return EXIT_FAILURE;
@@ -143,21 +141,29 @@ int mainloop_run(void)
 
 	exit_status = EXIT_SUCCESS;
 
-	while (!epoll_terminate) {
-		struct epoll_event events[MAX_EPOLL_EVENTS];
-		int n, nfds;
+    return exit_status;
+}
 
-		nfds = epoll_wait(epoll_fd, events, MAX_EPOLL_EVENTS, -1);
-		if (nfds < 0)
-			continue;
+void mainloop_tick(int timeout)
+{
+	struct epoll_event events[MAX_EPOLL_EVENTS];
+	int n, nfds;
 
-		for (n = 0; n < nfds; n++) {
-			struct mainloop_data *data = events[n].data.ptr;
+	nfds = epoll_wait(epoll_fd, events, MAX_EPOLL_EVENTS, timeout);
+	if (nfds < 0)
+		return;
 
-			data->callback(data->fd, events[n].events,
-							data->user_data);
-		}
+	for (n = 0; n < nfds; n++) {
+		struct mainloop_data *data = events[n].data.ptr;
+
+		data->callback(data->fd, events[n].events,
+                       data->user_data);
 	}
+}
+
+int mainloop_run_exit(void)
+{
+	unsigned int i;
 
 	if (signal_data) {
 		mainloop_remove_fd(signal_data->fd);
@@ -186,6 +192,20 @@ int mainloop_run(void)
 	epoll_fd = 0;
 
 	return exit_status;
+}
+
+int mainloop_run(void)
+{
+	exit_status = mainloop_run_init();
+	if (exit_status != EXIT_SUCCESS) {
+		return exit_status;
+	}
+
+	while (!epoll_terminate) {
+		mainloop_tick(-1);
+	}
+
+	return mainloop_run_exit();
 }
 
 int mainloop_add_fd(int fd, uint32_t events, mainloop_event_func callback,
